@@ -534,6 +534,7 @@
       position: sticky;
       top: 0;
       z-index: 10;
+      flex-shrink: 0; /* never collapse when a panel is taller than the column */
     }
     .panel-tab-btn {
       flex: 1;
@@ -563,6 +564,7 @@
       display: none;
       flex-direction: column;
       gap: 20px;
+      flex-shrink: 0;
     }
     .panel-content.active {
       display: flex;
@@ -1744,7 +1746,31 @@ LOCOS EN LA PISCINA</textarea>
           </div>
 
           <div class="alert-box alert-info">
-            ℹ️ <strong>El orden cambia. Los números se quedan con sus clips.</strong>
+            ℹ️ <strong>El orden cambia, pero cada nombre se queda con su clip. El #1 siempre se muestra al final.</strong>
+          </div>
+
+          <div class="guide-card" id="top3-card">
+            <h4>🏆 Elige tu Top 3</h4>
+            <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4; margin-bottom: 8px;">
+              Selecciona qué clip será #1 (se muestra el último), #2 y #3. Si eliges un clip que ya ocupa otro puesto, intercambian lugares.
+            </p>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 12px;"><span class="badge badge-rank">#1</span>
+                <select id="top3-select-1" class="clip-label-input" style="flex: 1;" aria-label="Clip del puesto 1"></select></label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 12px;"><span class="badge badge-rank">#2</span>
+                <select id="top3-select-2" class="clip-label-input" style="flex: 1;" aria-label="Clip del puesto 2"></select></label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 12px;"><span class="badge badge-rank">#3</span>
+                <select id="top3-select-3" class="clip-label-input" style="flex: 1;" aria-label="Clip del puesto 3"></select></label>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; flex-wrap: wrap;">
+              <label class="switch-label" style="font-size: 12px;">
+                <input type="checkbox" id="randomize-keep-top3" class="switch-input" checked />
+                <span>Mantener mi Top 3</span>
+              </label>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-randomize-ranks" title="Reparte los puestos al azar; cada nombre viaja con su clip">
+                🎲 Aleatorizar puestos
+              </button>
+            </div>
           </div>
 
           <div class="guide-card">
@@ -2845,6 +2871,11 @@ LOCOS EN LA PISCINA</textarea>
       for (const c of state.clips) {
         if (!list.includes(c)) list.push(c);
       }
+      // Rule: #1 is always revealed last
+      const winnerIdx = list.findIndex(c => c.rank === 1);
+      if (winnerIdx !== -1 && winnerIdx !== list.length - 1) {
+        list.push(list.splice(winnerIdx, 1)[0]);
+      }
       return list;
     }
 
@@ -3211,6 +3242,7 @@ LOCOS EN LA PISCINA</textarea>
           clip.label = e.target.value;
           renderPlaybackList();
           renderTimeline();
+          renderTop3Selectors();
           requestAnimationFrame(renderFrame);
         });
 
@@ -3234,6 +3266,7 @@ LOCOS EN LA PISCINA</textarea>
 
       renderPlaybackList();
       renderLadderSlotsEditor();
+      renderTop3Selectors();
       updateTotalDuration();
       requestAnimationFrame(renderFrame);
     }
@@ -3251,8 +3284,8 @@ LOCOS EN LA PISCINA</textarea>
         state.clips.splice(idx, 1);
         state.playbackOrder = state.playbackOrder.filter(x => x !== id);
 
-        // Re-assign contiguous rank numbers 1..N
-        state.clips.forEach((c, i) => {
+        // Re-assign contiguous rank numbers 1..N keeping the current ranking order
+        [...state.clips].sort((a, b) => a.rank - b.rank).forEach((c, i) => {
           c.rank = i + 1;
         });
 
@@ -3481,16 +3514,86 @@ LOCOS EN LA PISCINA</textarea>
 
       // Shuffle playbackOrder array: slots/ranks DO NOT change!
       // Fisher-Yates
-      const ids = [...state.playbackOrder];
+      const winner = state.clips.find(c => c.rank === 1);
+      const ids = state.playbackOrder.filter(id => !winner || id !== winner.id);
       for (let i = ids.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [ids[i], ids[j]] = [ids[j], ids[i]];
       }
+      if (winner) ids.push(winner.id); // #1 always last
       state.playbackOrder = ids;
       renderPlaybackList();
       renderTimeline();
       requestAnimationFrame(renderFrame);
     });
+
+    // ---- Top 3 podium + rank randomizer (names always travel with their clip) ----
+    function refreshAfterRankChange() {
+      renderClipsList();
+      renderPlaybackList();
+      renderTimeline();
+      requestAnimationFrame(renderFrame);
+    }
+
+    // Give `clipId` the target rank; whoever held it takes the clip's old rank.
+    function setClipRankSwap(clipId, targetRank) {
+      const clip = state.clips.find(c => c.id === clipId);
+      if (!clip || clip.rank === targetRank) return;
+      const occupant = state.clips.find(c => c.rank === targetRank);
+      if (occupant) occupant.rank = clip.rank;
+      clip.rank = targetRank;
+    }
+
+    function renderTop3Selectors() {
+      const selects = [1, 2, 3].map(n => document.getElementById('top3-select-' + n));
+      if (selects.some(s => !s)) return;
+      const sorted = [...state.clips].sort((a, b) => a.rank - b.rank);
+      selects.forEach((sel, i) => {
+        const rank = i + 1;
+        sel.innerHTML = '';
+        sel.disabled = sorted.length < rank;
+        if (sorted.length < rank) {
+          sel.innerHTML = '<option>— sin clip —</option>';
+          return;
+        }
+        sorted.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = (c.label && c.label.trim()) ? c.label.trim() : 'Clip sin nombre';
+          opt.selected = c.rank === rank;
+          sel.appendChild(opt);
+        });
+      });
+    }
+
+    [1, 2, 3].forEach(n => {
+      const sel = document.getElementById('top3-select-' + n);
+      if (!sel) return;
+      sel.addEventListener('change', (e) => {
+        setClipRankSwap(e.target.value, n);
+        refreshAfterRankChange();
+      });
+    });
+
+    const randomizeRanksBtn = document.getElementById('btn-randomize-ranks');
+    if (randomizeRanksBtn) {
+      randomizeRanksBtn.addEventListener('click', () => {
+        if (state.clips.length <= 1) return;
+        const keepTop3 = document.getElementById('randomize-keep-top3').checked;
+        const lockedUpTo = keepTop3 ? Math.min(3, state.clips.length) : 0;
+        const movable = state.clips.filter(c => c.rank > lockedUpTo);
+        const ranks = movable.map(c => c.rank);
+        for (let i = ranks.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [ranks[i], ranks[j]] = [ranks[j], ranks[i]];
+        }
+        movable.forEach((c, i) => { c.rank = ranks[i]; });
+        // Custom order would hide the change; follow the ranking (N → 1, #1 last)
+        state.customOrderActive = false;
+        dom.customOrderToggle.checked = false;
+        refreshAfterRankChange();
+      });
+    }
 
     function renderPlaybackList() {
       dom.playbackList.innerHTML = '';
@@ -3799,9 +3902,7 @@ LOCOS EN LA PISCINA</textarea>
           : defaultColor;
 
         const clipForRank = state.clips.find(c => c.rank === r);
-        const currentTag = (state.ladderCustomTags && state.ladderCustomTags[r] !== undefined && state.ladderCustomTags[r] !== '')
-          ? state.ladderCustomTags[r]
-          : (clipForRank && clipForRank.label ? clipForRank.label : (r === 6 ? 'No way! 🤯' : ''));
+        const currentTag = (clipForRank && clipForRank.label) ? clipForRank.label : '';
 
         row.innerHTML = `
           <div class="ladder-slot-badge" style="color: ${currentColor};" title="Slot #${r}">#${r}</div>
@@ -3827,12 +3928,14 @@ LOCOS EN LA PISCINA</textarea>
 
         const tagInput = row.querySelector('.input-ladder-tag');
         tagInput.addEventListener('input', (e) => {
-          if (!state.ladderCustomTags) state.ladderCustomTags = {};
-          state.ladderCustomTags[r] = e.target.value;
+          // The name belongs to the clip (not to the slot) so it follows it when ranks change
           if (clipForRank) {
             clipForRank.label = e.target.value;
-            renderClipsList();
+            const cardInput = dom.clipsList.querySelector(`.clip-item-card[data-id="${clipForRank.id}"] .clip-label-input`);
+            if (cardInput) cardInput.value = e.target.value;
             renderPlaybackList();
+            renderTimeline();
+            renderTop3Selectors();
           }
           requestAnimationFrame(renderFrame);
         });
@@ -4837,9 +4940,9 @@ LOCOS EN LA PISCINA</textarea>
           const tagX = ladderX + numMetrics.width + 18;
 
           // Customizable reaction tag text
-          let labelText = (state.ladderCustomTags && state.ladderCustomTags[rank] !== undefined && state.ladderCustomTags[rank] !== '')
-            ? state.ladderCustomTags[rank]
-            : ((activeClip.label && activeClip.label.trim()) ? activeClip.label.trim() : `Top #${rank}`);
+          let labelText = (activeClip.label && activeClip.label.trim())
+            ? activeClip.label.trim()
+            : `Top #${rank}`;
 
           ctx.font = '800 42px Archivo, sans-serif';
 

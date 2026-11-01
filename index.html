@@ -3250,6 +3250,7 @@ LOCOS EN LA PISCINA</textarea>
         const muteBtn = card.querySelectorAll('.icon-btn')[0];
         muteBtn.addEventListener('click', () => {
           clip.mute = !clip.mute;
+          if (clip.mediaElement && clip.type === 'video') clip.mediaElement.muted = clip.mute;
           renderClipsList();
           requestAnimationFrame(renderFrame);
         });
@@ -3340,7 +3341,7 @@ LOCOS EN LA PISCINA</textarea>
         duration: Math.max(1, duration),
         trimStart: 0,
         trimEnd: duration,
-        mute: true, // Default muted as required
+        mute: false, // Sound on by default
         mediaElement: null,
         thumbUrl: null
       };
@@ -5308,14 +5309,32 @@ LOCOS EN LA PISCINA</textarea>
       dom.exportPercentText.textContent = '0%';
 
       const canvasStream = dom.canvas.captureStream(30);
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      // One shared context for the whole page: elements can only be wrapped once, and closing it would silence them
+      if (!window.__rrAudioCtx) window.__rrAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const audioCtx = window.__rrAudioCtx;
+      if (audioCtx.state === 'suspended') audioCtx.resume();
       const dest = audioCtx.createMediaStreamDestination();
+
+      // Route the audio of each unmuted video clip into the export (and keep it audible)
+      state.clips.forEach(c => {
+        if (c.type !== 'video' || !(c.mediaElement instanceof HTMLVideoElement)) return;
+        try {
+          if (!c.audioSrc) {
+            c.audioSrc = audioCtx.createMediaElementSource(c.mediaElement);
+            c.audioSrc.connect(audioCtx.destination); // keep it audible in the preview
+          }
+          c.audioSrc.connect(dest);
+        } catch (e) { console.warn('Clip audio routing failed:', e); }
+      });
 
       // Route audioTrack if available
       if (state.audioTrack) {
         try {
-          const source = audioCtx.createMediaElementSource(state.audioTrack);
-          source.connect(dest);
+          if (!state.audioTrack.__src) {
+            state.audioTrack.__src = audioCtx.createMediaElementSource(state.audioTrack);
+            state.audioTrack.__src.connect(audioCtx.destination);
+          }
+          state.audioTrack.__src.connect(dest);
           state.audioTrack.currentTime = 0;
           state.audioTrack.play();
         } catch (e) {
@@ -5356,8 +5375,9 @@ LOCOS EN LA PISCINA</textarea>
       };
 
       recorder.onstop = async () => {
-        if (state.audioTrack) state.audioTrack.pause();
-        audioCtx.close();
+        if (state.audioTrack) { state.audioTrack.pause(); try { state.audioTrack.__src && state.audioTrack.__src.disconnect(dest); } catch (e) {} }
+        // Stop feeding the finished recording; keep the context alive so clips stay audible
+        state.clips.forEach(c => { if (c.audioSrc) { try { c.audioSrc.disconnect(dest); } catch (e) {} } });
 
         const blob = new Blob(recordedChunks, { type: selectedMime });
         const videoUrl = URL.createObjectURL(blob);

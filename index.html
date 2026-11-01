@@ -5407,32 +5407,50 @@ LOCOS EN LA PISCINA</textarea>
         dom.exportCompletedState.style.display = 'flex';
       };
 
-      recorder.start();
+      // --- Real-time render: clips really play (so their sound is captured and frames never go black) ---
+      // 1) Pre-warm every video: seek to its start and wait until a frame is decoded
+      const warmVideos = state.clips.filter(c => c.type === 'video' && c.mediaElement instanceof HTMLVideoElement);
+      await Promise.all(warmVideos.map(c => new Promise(resolve => {
+        const v = c.mediaElement;
+        v.muted = !!c.mute;
+        v.pause();
+        const done = () => { v.removeEventListener('seeked', done); resolve(); };
+        v.addEventListener('seeked', done);
+        setTimeout(done, 3000); // never hang on a broken clip
+        v.currentTime = c.trimStart || 0;
+      })));
 
-      // Render frames sequentially
-      state.currentTime = 0;
+      // 2) Start recording and the real-time clock
       const totalDur = state.totalDuration;
-      const fps = 30;
-      const step = 1 / fps;
-      const totalSteps = Math.ceil(totalDur * fps);
-      let stepCount = 0;
+      state.currentTime = 0;
+      state.isPlaying = true;
+      currentActiveClipId = null; // forces a fresh sync (play) on the first clip
+      if (state.audioTrack) {
+        state.audioTrack.currentTime = 0;
+        state.audioTrack.play().catch(() => {});
+      }
+      recorder.start(250);
+      const exportStart = performance.now();
 
       function renderExportStep() {
-        if (stepCount >= totalSteps) {
-          recorder.stop();
+        const elapsed = (performance.now() - exportStart) / 1000;
+        if (elapsed >= totalDur) {
+          state.currentTime = Math.max(0, totalDur - 0.001);
+          renderFrame();
+          state.isPlaying = false;
+          pauseAllVideosExcept(null);
+          setTimeout(() => recorder.stop(), 250); // let the last frames/audio flush
           return;
         }
 
-        state.currentTime = stepCount * step;
+        state.currentTime = elapsed;
         renderFrame();
 
-        stepCount++;
-        const pct = Math.min(100, Math.round((stepCount / totalSteps) * 100));
+        const pct = Math.min(100, Math.round((elapsed / totalDur) * 100));
         dom.exportProgressBar.style.width = `${pct}%`;
         dom.exportPercentText.textContent = `${pct}%`;
 
-        // Yield to browser to capture frame
-        setTimeout(renderExportStep, 1000 / fps);
+        requestAnimationFrame(renderExportStep);
       }
 
       renderExportStep();

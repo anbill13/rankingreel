@@ -4905,6 +4905,11 @@ LOCOS EN LA PISCINA</textarea>
       const strokeW = state.rankingLadderStroke;
       const ladderX = state.rankingLadderX;
 
+      // Clips already shown (in playback order) up to and including the active one
+      const playOrder = getOrderedClips();
+      const activeIdx = activeClip ? playOrder.findIndex(c => c.id === activeClip.id) : -1;
+      const revealed = activeIdx >= 0 ? playOrder.slice(0, activeIdx + 1) : [];
+
       ctx.save();
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
@@ -4935,29 +4940,27 @@ LOCOS EN LA PISCINA</textarea>
         ctx.fillStyle = color;
         ctx.fillText(text, ladderX, y);
 
-        // Active clip label / reaction tag right beside the active rank number
-        if (activeClip && activeClip.rank === rank) {
-          const numMetrics = ctx.measureText(text);
-          const tagX = ladderX + numMetrics.width + 18;
+        // Name tag beside each rank number once its clip has been revealed (stays on screen afterwards)
+        const revealedClip = revealed.find(c => c.rank === rank);
+        if (revealedClip) {
+          const isActive = activeClip && revealedClip.id === activeClip.id;
+          const typed = (revealedClip.label && revealedClip.label.trim()) ? revealedClip.label.trim() : '';
+          const labelText = typed || (isActive ? `Top #${rank}` : '');
+          if (labelText) {
+            const numMetrics = ctx.measureText(text);
+            const tagX = ladderX + numMetrics.width + 18;
 
-          // Customizable reaction tag text
-          let labelText = (activeClip.label && activeClip.label.trim())
-            ? activeClip.label.trim()
-            : `Top #${rank}`;
-
-          ctx.font = '800 42px Archivo, sans-serif';
-
-          // Stroke and fill label
-          ctx.lineWidth = 10;
-          ctx.strokeStyle = '#000000';
-          ctx.lineJoin = 'round';
-          ctx.strokeText(labelText, tagX, y);
-
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillText(labelText, tagX, y);
-
-          // Restore font for subsequent ladder numbers
-          ctx.font = `900 ${ladderSize}px ${state.titleFont}`;
+            ctx.save();
+            ctx.globalAlpha = isActive ? 1 : 0.88;
+            ctx.font = '800 42px Archivo, sans-serif';
+            ctx.lineWidth = 10;
+            ctx.strokeStyle = '#000000';
+            ctx.lineJoin = 'round';
+            ctx.strokeText(labelText, tagX, y);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillText(labelText, tagX, y);
+            ctx.restore();
+          }
         }
       });
 

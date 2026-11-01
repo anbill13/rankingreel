@@ -3886,7 +3886,7 @@ LOCOS EN LA PISCINA</textarea>
       if (!dom.ladderSlotsEditorList) return;
       dom.ladderSlotsEditorList.innerHTML = '';
 
-      const slotCount = Math.max(state.clips.length, 6);
+      const slotCount = Math.max(state.clips.length, 1);
       const activeClip = getActiveClipAt(state.currentTime).clip;
 
       for (let r = 1; r <= slotCount; r++) {
@@ -4192,7 +4192,7 @@ LOCOS EN LA PISCINA</textarea>
 
     if (dom.btnLadderSpacingAuto) {
       dom.btnLadderSpacingAuto.addEventListener('click', () => {
-        const count = Math.max(state.clips.length, 6);
+        const count = Math.max(state.clips.length, 1);
         const startY = state.rankingLadderStartY !== undefined
           ? state.rankingLadderStartY
           : (state.layoutHeaderBanner ? (state.topHeaderHeight + 70) : 380);
@@ -4894,7 +4894,7 @@ LOCOS EN LA PISCINA</textarea>
 
     function drawRankingLadder(ctx, w, h, activeClip) {
       if (!state.rankingLadderEnabled) return;
-      const count = Math.max(state.clips.length, 6);
+      const count = Math.max(state.clips.length, 1);
       const startY = state.rankingLadderStartY !== undefined
         ? state.rankingLadderStartY
         : (state.layoutHeaderBanner ? (state.topHeaderHeight + 70) : 380);

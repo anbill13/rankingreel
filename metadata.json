@@ -1,0 +1,6 @@
+{
+  "name": "RankReel",
+  "description": "Crea videos verticales de ranking tipo Top 5/6/7 para Shorts, Reels y TikTok en el navegador. Procesa clips localmente sin subidas.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

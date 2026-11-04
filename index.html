@@ -5172,7 +5172,21 @@ LOCOS EN LA PISCINA</textarea>
       }
 
       const vid = activeClip.mediaElement;
-      const targetTime = (activeClip.trimStart || 0) + localTime;
+      // Never ask for a time beyond the real end of the media (that shows black while it seeks):
+      // if the slot is longer than the video (e.g. "Ajustar a la voz"), hold the last frame instead.
+      const realEnd = (isFinite(vid.duration) && vid.duration > 0) ? vid.duration : Infinity;
+      const clipEnd = Math.min(activeClip.trimEnd > 0 ? activeClip.trimEnd : Infinity, realEnd);
+      const wantedTime = (activeClip.trimStart || 0) + localTime;
+      const holdLastFrame = wantedTime >= clipEnd - 0.05;
+      const targetTime = holdLastFrame ? Math.max(0, clipEnd - 0.05) : wantedTime;
+
+      if (holdLastFrame && currentActiveClipId === activeClip.id) {
+        if (!vid.paused) vid.pause();
+        if (!vid.seeking && Math.abs(vid.currentTime - targetTime) > 0.1 && !state.exporting) {
+          vid.currentTime = targetTime;
+        }
+        return;
+      }
 
       // When clip switches to a new one
       if (currentActiveClipId !== activeClip.id) {
@@ -5201,7 +5215,8 @@ LOCOS EN LA PISCINA</textarea>
         }
         // ONLY correct drift if significantly out of sync (> 0.6s) to avoid decoder seek-stalls
         const drift = Math.abs(vid.currentTime - targetTime);
-        if (drift > 0.6 && !vid.seeking) {
+        // While exporting never seek mid-clip: a seek cuts the sound and flashes black
+        if (drift > 0.6 && !vid.seeking && !state.exporting) {
           vid.currentTime = targetTime;
         }
       } else {
@@ -5424,6 +5439,7 @@ LOCOS EN LA PISCINA</textarea>
       const totalDur = state.totalDuration;
       state.currentTime = 0;
       state.isPlaying = true;
+      state.exporting = true;
       currentActiveClipId = null; // forces a fresh sync (play) on the first clip
       if (state.audioTrack) {
         state.audioTrack.currentTime = 0;
@@ -5438,6 +5454,7 @@ LOCOS EN LA PISCINA</textarea>
           state.currentTime = Math.max(0, totalDur - 0.001);
           renderFrame();
           state.isPlaying = false;
+          state.exporting = false;
           pauseAllVideosExcept(null);
           setTimeout(() => recorder.stop(), 250); // let the last frames/audio flush
           return;
@@ -5450,7 +5467,8 @@ LOCOS EN LA PISCINA</textarea>
         dom.exportProgressBar.style.width = `${pct}%`;
         dom.exportPercentText.textContent = `${pct}%`;
 
-        requestAnimationFrame(renderExportStep);
+        // setTimeout (not rAF) so the wall-clock keeps running even if the tab loses focus
+        setTimeout(renderExportStep, 1000 / 30);
       }
 
       renderExportStep();
